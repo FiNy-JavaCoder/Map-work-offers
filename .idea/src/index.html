@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Maps API</title>
+    <style>
+        #map {
+          height: 410px;
+          width: 100%;
+        }
+
+        .search-container {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          z-index: 1;
+        }
+
+        .search-input {
+          padding: 8px;
+          font-size: 14px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+        }
+
+        .search-button {
+          padding: 8px 12px;
+          font-size: 14px;
+          background-color: #162b6e;
+          color: #fff;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+
+        .marker-info {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background-color: #fff;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="search-container">
+    <input type="text" id="searchInput" class="search-input" placeholder="Zadat lokalitu">
+    <button onclick="search()" class="search-button">VYHLEDAT</button>
+</div>
+
+<div id="markerInfo" class="marker-info"></div>
+
+<script src="https://unpkg.com/@googlemaps/markerclusterer/dist/index.min.js"></script>
+<script>
+    var YOUR_SPREADSHEET_ID = '1X8zavRPFSXNzOHVxBFLvqq6srTT7B4ulngt3KOf6aEo'; // Replace with your actual spreadsheet ID
+    var YOUR_API_KEY = 'AIzaSyApU_1qQwsMlcsVvsIM--qDXmq0Gv7Wgjk'; // Replace with your actual API key
+    var sheetName = 'LOCATIONS';
+    var map;
+    var searchBox;
+    var infoWindow;
+    var markerInfoElement;
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 49.472734, lng: 15.268801 },
+        zoom: 6.8,
+        styles: [
+          // The first set of map styling data you provided...
+          {
+            featureType: 'landscape',
+            elementType: 'all',
+            stylers: [
+              { visibility: 'on' },
+              { color: '#fdfdfd' }
+            ]
+          },
+          // The rest of the styling data you provided...
+          {
+            featureType: 'landscape.man_made',
+            elementType: 'geometry',
+            stylers: [
+              { visibility: 'off' }
+            ]
+          },
+          {
+            featureType: 'poi',
+            elementType: 'labels.icon',
+            stylers: [
+              { visibility: 'off' }
+            ]
+          },
+          {
+            featureType: 'road',
+            elementType: 'all',
+            stylers: [
+              { color: '#000000' }
+            ]
+          },
+          {
+            featureType: 'road',
+            elementType: 'geometry.fill',
+            stylers: [
+              { color: '#ffffff' }
+            ]
+          },
+          {
+            featureType: 'road',
+            elementType: 'geometry.stroke',
+            stylers: [
+              { gamma: 7.18 }
+            ]
+          },
+          {
+            featureType: 'road',
+            elementType: 'labels.text',
+            stylers: [
+              { visibility: 'on' },
+              { saturation: '-35' },
+              { lightness: '-95' },
+              { gamma: '0.00' },
+              { weight: '0.01' }
+            ]
+          },
+          {
+            featureType: 'road',
+            elementType: 'labels.icon',
+            stylers: [
+              { visibility: 'off' }
+            ]
+          },
+          {
+            featureType: 'road.highway',
+            elementType: 'all',
+            stylers: [
+              { color: '#ffb900' }
+            ]
+          },
+          {
+            featureType: 'road.local',
+            elementType: 'labels.text',
+            stylers: [
+              { visibility: 'on' }
+            ]
+          },
+          {
+            featureType: 'transit',
+            elementType: 'all',
+            stylers: [
+              { visibility: 'on' }
+            ]
+          },
+          {
+            featureType: 'transit.line',
+            elementType: 'geometry',
+            stylers: [
+              { gamma: 0.48 }
+            ]
+          },
+          {
+            featureType: 'transit.station',
+            elementType: 'labels.icon',
+            stylers: [
+              { visibility: 'off' }
+            ]
+          },
+          {
+            featureType: 'transit.station.rail',
+            elementType: 'all',
+            stylers: [
+              { visibility: 'off' },
+              { color: '#ff0000' }
+            ]
+          },
+          {
+            featureType: 'water',
+            elementType: 'all',
+            stylers: [
+              { color: '#4d4946' }
+            ]
+          },
+          {
+            featureType: 'water',
+            elementType: 'geometry.fill',
+            stylers: [
+              { visibility: 'on' },
+              { color: '#33435a' }
+            ]
+          },
+          {
+            featureType: 'water',
+            elementType: 'labels.text.fill',
+            stylers: [
+              { color: '#ffffff' }
+            ]
+          }
+        ],
+        mapTypeControl: false,
+        gestureHandling: 'greedy'
+      });
+
+      const searchInput = document.getElementById("searchInput");
+      searchBox = new google.maps.places.SearchBox(searchInput);
+
+      map.addListener("bounds_changed", () => {
+        searchBox.setBounds(map.getBounds());
+      });
+
+      searchInput.addEventListener("keyup", function(event) {
+        if (event.key === "Enter" && event.keyCode !== 229) {
+          event.preventDefault(); // Prevent form submission
+          search();
+        }
+      });
+
+      searchBox.addListener("places_changed", function() {
+        search();
+      });
+
+      infoWindow = new google.maps.InfoWindow();
+      markerInfoElement = document.getElementById("markerInfo");
+
+      var markers = [];
+
+      fetch('https://sheets.googleapis.com/v4/spreadsheets/' + YOUR_SPREADSHEET_ID + '/values/' + sheetName + '?key=' + YOUR_API_KEY)
+        .then(function(response) {
+          return response.json();
+        })
+        .then(function(data) {
+          var values = data.values;
+var seen = [];
+          values.forEach(function(row, index) {
+            if (index === 0) return;
+
+            var zamestnavatel = row[1];
+            var address = row[3];
+            var info = row[2];
+            var informaceKPracovniPozici = row[6];
+            var financniOhodnoceni = row[18];
+            var kontaktniOsoba = row[17];
+            var vicInformaci = row[21];
+            var status = row[15];
+            var startDateString = row[13];
+            var endDateString = row[14];
+            var uvazek = row[24];
+
+            var lat = row[26];
+            var lon = row[27];
+
+            if (!zamestnavatel || !address || !info || !informaceKPracovniPozici || !financniOhodnoceni || !kontaktniOsoba || !vicInformaci || !status || status.toLowerCase() !== 'ok') return;
+
+            var currentDate = new Date();
+            var startDate = new Date(startDateString);
+            var endDate = new Date(endDateString);
+
+            // Include markers even if the current date is equal to or greater than the start date
+            if (currentDate < startDate || currentDate > endDate) return;
+
+            if (!kontaktniOsoba) return;
+let dup = false;
+            for (i = 0; i < seen.length; i++) {
+              if (seen[i].lat == lat && seen[i].lon == lon) {
+                lat = parseFloat(lat) + (Math.random() - 0.5) / 10000
+                lon = parseFloat(lon) + (Math.random() - 0.5) / 10000
+                dup = true;
+                break;
+              }
+            }
+            if (!dup) {
+              seen.push({lat, lon})
+            }
+            var marker = new google.maps.Marker({
+              position: new google.maps.LatLng(lat, lon),
+              title: zamestnavatel
+            });
+
+            marker.addListener('click', function() {
+              var contentString =
+                '<div>' +
+                '<h2>' + zamestnavatel + '</h2>' +
+                '<p>' + formatText(address) + '</p>' +
+                '<p><strong>Výše úvazku:</strong></p>' +
+                '</p>' +
+                formatText(uvazek) + '</p>' +
+                '<p><strong>Sekční zařazení:</strong></p>' +
+                '</p>' +
+                formatText(info) + '</p>' +
+                '<p><strong>Informace k pracovní pozici:</strong></p>' +
+                '<p>' + formatText(informaceKPracovniPozici) + '</p>' +
+                '<p><strong>Finanční ohodnocení:</strong></p>' +
+                '<p>' + formatText(financniOhodnoceni) + '</p>' +
+                '<p><strong>Kontaktní osoba:</strong></p>' +
+                '<p>' + formatText(kontaktniOsoba) + '</p>' +
+                '<p><strong>Více informací:</strong></p>' +
+                '<p>' + formatText(vicInformaci) + '</p>' +
+                '</div>';
+
+              infoWindow.setContent(contentString);
+              infoWindow.open(map, marker);
+            });
+
+            markers.push(marker);
+          });
+          new markerClusterer.MarkerClusterer({ markers, map });
+        })
+        .catch(function(error) {
+          console.error('Error:', error);
+        });
+
+      map.addListener('click', function() {
+        infoWindow.close();
+      });
+    }
+
+   function search() {
+      const searchInput = document.getElementById("searchInput");
+      const query = searchInput.value;
+
+      if (!query) {
+        alert("Please enter a location.");
+        return;
+      }
+
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: query }, function (results, status) {
+        if (status === "OK" && results && results[0] && results[0].geometry && results[0].geometry.location) {
+          const location = results[0].geometry.location;
+          map.setCenter(location);
+          map.setZoom(11); // You can set your desired zoom level here
+        } else {
+          alert("Location not found. Please try again with a different search term.");
+        }
+      });
+    }
+
+    function formatText(text) {
+  var formattedText = '';
+  var charactersPerLine = 35;
+  var currentLineLength = 0;
+
+  var urlRegex = /(https?:\/\/[^\s]+)/g;
+  var urls = text.match(urlRegex);
+
+  if (urls) {
+    formattedText = text.replace(urlRegex, '<a href="$&" target="_blank">zde</a>');
+  } else {
+    for (var i = 0; i < text.length; i++) {
+      if (text[i] === ' ') {
+        formattedText += text[i];
+        currentLineLength = 0;
+      } else {
+        if (currentLineLength === charactersPerLine) {
+          formattedText += '<br>';
+          currentLineLength = 0;
+        }
+        formattedText += text[i];
+        currentLineLength++;
+      }
+    }
+  }
+
+  return formattedText;
+}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=#########key-for-git-hidden###########&libraries=places&callback=initMap" async defer></script>
+</body>
+</html>
